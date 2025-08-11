@@ -1,0 +1,3 @@
+ttkbootstrap==1.12.2
+tkinterweb==3.12.0  # For tkinter enhancements (if needed)
+emulator==1.0.0
