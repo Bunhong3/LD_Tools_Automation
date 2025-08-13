@@ -83,7 +83,7 @@ class ControlEmulator:
             print(f"Ensure that the emulator with serial {serial} is running and connected to ADB.")
 
     def scroll_facebook(self, name, duration_sec=900):
-        """Simulate scrolling on Facebook for the specified duration."""
+        """Simulate smoother scrolling on Facebook for the specified duration."""
         serial = self.name_to_serial.get(name, name)
         if not serial:
             print(f"No serial found for {name}")
@@ -93,12 +93,13 @@ class ControlEmulator:
         start_time = time.time()
         try:
             while time.time() - start_time < duration_sec:
+                # Perform a smooth swipe gesture
                 subprocess.run([
                     "adb", "-s", serial,
-                    "shell", "input", "swipe", "300", "1000", "300", "300", "300"
+                    "shell", "input", "swipe", "300", "1000", "300", "500", "500"  # Adjusted swipe duration
                 ], check=True)
-                print(f"Scrolled Facebook on LD {name}")
-                time.sleep(3)  # Wait before the next scroll
+                print(f"Smoothly scrolled Facebook on LD {name}")
+                time.sleep(2)  # Slight delay between swipes for smoother experience
         except subprocess.CalledProcessError as e:
             print(f"Failed to scroll on LD {name}: {e}")
         except Exception as e:
@@ -112,5 +113,4 @@ class ControlEmulator:
     def ld_task(self, name):
         serial = self.em.name_to_serial.get(name)
         if not self.is_emulator_connected(serial):
-            self.log(f"Emulator {name} ({serial}) is not connected. Skipping...")
             return

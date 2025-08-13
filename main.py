@@ -97,37 +97,35 @@ class LDManagerApp:
         self.settings_frame = ttkb.LabelFrame(root, text="Task Settings", bootstyle="primary")
         self.settings_frame.pack(fill="x", padx=10, pady=5)
 
-        # Row 0: LDs in Parallel
+        # Row 0: LDs in Parallel, Boot Delay, and Task Delay
         ttkb.Label(self.settings_frame, text="LDs in Parallel:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.parallel_ld = tk.IntVar(value=3)
         ttkb.Entry(self.settings_frame, textvariable=self.parallel_ld, width=5).grid(row=0, column=1, padx=5, pady=5)
 
-        # Row 1: Boot Delay
-        ttkb.Label(self.settings_frame, text="Boot Delay (s):").grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        ttkb.Label(self.settings_frame, text="Boot Delay (s):").grid(row=0, column=2, padx=5, pady=5, sticky="w")
         self.boot_delay = tk.IntVar(value=40)
-        ttkb.Entry(self.settings_frame, textvariable=self.boot_delay, width=5).grid(row=1, column=1, padx=5, pady=5)
+        ttkb.Entry(self.settings_frame, textvariable=self.boot_delay, width=5).grid(row=0, column=3, padx=5, pady=5)
 
-        # Row 2: Task Delay, Close Delay, Scroll Duration side-by-side
-        ttkb.Label(self.settings_frame, text="Task Delay (s):").grid(row=2, column=0, padx=5, pady=5, sticky="w")
+        ttkb.Label(self.settings_frame, text="Task Delay (s):").grid(row=0, column=4, padx=5, pady=5, sticky="w")
         self.task_delay = tk.IntVar(value=10)
-        ttkb.Entry(self.settings_frame, textvariable=self.task_delay, width=5).grid(row=2, column=1, padx=5, pady=5)
+        ttkb.Entry(self.settings_frame, textvariable=self.task_delay, width=5).grid(row=0, column=5, padx=5, pady=5)
 
-        ttkb.Label(self.settings_frame, text="Close Delay (s):").grid(row=2, column=2, padx=5, pady=5, sticky="w")
+        # Row 1: Close Delay, Scroll Duration, and Progress Bar
+        ttkb.Label(self.settings_frame, text="Close Delay (s):").grid(row=1, column=0, padx=5, pady=5, sticky="w")
         self.close_delay = tk.IntVar(value=15)
-        ttkb.Entry(self.settings_frame, textvariable=self.close_delay, width=5).grid(row=2, column=3, padx=5, pady=5)
+        ttkb.Entry(self.settings_frame, textvariable=self.close_delay, width=5).grid(row=1, column=1, padx=5, pady=5)
 
-        ttkb.Label(self.settings_frame, text="Scroll Duration (min):").grid(row=2, column=4, padx=5, pady=5, sticky="w")
+        ttkb.Label(self.settings_frame, text="Scroll Duration (min):").grid(row=1, column=2, padx=5, pady=5, sticky="w")
         self.scroll_duration = tk.IntVar(value=5)
-        ttkb.Entry(self.settings_frame, textvariable=self.scroll_duration, width=5).grid(row=2, column=5, padx=5, pady=5)
+        ttkb.Entry(self.settings_frame, textvariable=self.scroll_duration, width=5).grid(row=1, column=3, padx=5, pady=5)
 
-        # Progress Bar
         self.progress = ttkb.Progressbar(
             self.settings_frame,
             orient="horizontal",
             mode="determinate",
             bootstyle="success-striped"
         )
-        self.progress.grid(row=3, column=0, columnspan=6, padx=5, pady=5, sticky="ew")
+        self.progress.grid(row=1, column=4, columnspan=2, padx=5, pady=5, sticky="ew")
 
         # Control Buttons
         self.control_frame = ttkb.Frame(root)
@@ -151,15 +149,27 @@ class LDManagerApp:
         self.load_settings()
 
     def populate_ld_list(self):
+        """Populate the LD list with available LDs."""
         self.ld_list.delete(0, tk.END)
+        if not self.emulator.name_to_serial:
+            self.log("No available LDs found.")
+            return
+
         for name, serial in self.emulator.name_to_serial.items():
             self.ld_list.insert(tk.END, f"{name} ({serial})")
 
     def log(self, message):
+        """Log a message to the logs text widget."""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.logs_text.config(state="normal")
         self.logs_text.insert(tk.END, f"[{timestamp}] {message}\n")
         self.logs_text.see(tk.END)
+
+        # Limit log entries to the last 100 lines
+        lines = self.logs_text.get("1.0", tk.END).splitlines()
+        if len(lines) > 100:
+            self.logs_text.delete("1.0", f"{len(lines) - 100}.0")
+
         self.logs_text.config(state="disabled")
 
     def save_settings(self):
@@ -174,6 +184,7 @@ class LDManagerApp:
             json.dump(settings, f)
 
     def load_settings(self):
+        """Load settings from a JSON file."""
         try:
             with open("settings.json", "r") as f:
                 settings = json.load(f)
@@ -182,7 +193,8 @@ class LDManagerApp:
                 self.task_delay.set(settings.get("task_delay", 15))
                 self.close_delay.set(settings.get("close_delay", 15))
                 self.scroll_duration.set(settings.get("scroll_duration", 5))
-        except FileNotFoundError:
+        except (FileNotFoundError, json.JSONDecodeError):
+            self.log("Settings file not found or corrupted. Using default settings.")
             self.parallel_ld.set(2)
             self.boot_delay.set(25)
             self.task_delay.set(15)
@@ -190,11 +202,13 @@ class LDManagerApp:
             self.scroll_duration.set(5)
 
     def start_automation(self):
+        """Start the automation process."""
         selected_indices = self.ld_list.curselection()
         selected_ld_names = [self.ld_list.get(i).split(" (")[0] for i in selected_indices]
 
         if not selected_ld_names:
             Messagebox.show_error("No LDs selected. Please select at least one LD to start automation.", title="Error")
+            self.start_button.config(state="normal")  # Re-enable the button
             return
 
         self.running = True
@@ -224,6 +238,7 @@ class LDManagerApp:
         self.log("Stopping automation...")
 
     def run_automation(self, selected_ld_names, running_flag):
+        """Run the automation process."""
         try:
             main_window = MainWindow(
                 selected_ld_names,
@@ -249,25 +264,22 @@ class LDManagerApp:
 class YourClassName:
     def __init__(self, em):
         self.em = em
+        self.all_names = []
 
         # Safely collect all thread names
         if isinstance(self.em.list_thread, dict):
-            all_names = [thread.name for thread in self.em.list_thread.values()]
-        else:
-            all_names = [thread.name for thread in self.em.list_thread]
+            self.all_names = [thread.name for thread in self.em.list_thread.values()]
+        elif isinstance(self.em.list_thread, list):
+            self.all_names = [thread.name for thread in self.em.list_thread]
 
-        print("All Thread Names:", all_names)
-
-        # Continue your existing setup...
-        # Example: initialize UI, variables, etc.
-        self.setup_ui()
+        print("All Thread Names:", self.all_names)
 
     def setup_ui(self):
-        # Placeholder for your actual UI setup code
+        """Placeholder for UI setup."""
         print("Setting up UI...")
 
-    # Other methods go here...
     def example_method(self):
+        """Example method."""
         print("Example method running...")
 
 
