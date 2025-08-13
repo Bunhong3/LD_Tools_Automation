@@ -33,13 +33,15 @@ class ControlEmulator:
         if "unable to connect" in result.stdout.lower():
             print(f"Failed to connect to {serial}: {result.stdout}")
 
-    def start_ld(self, name):
-        """Start the LD emulator by name."""
+    def start_ld(self, name, delay_between_starts=10):
+        """Start the LD emulator by name with a delay between starts."""
         try:
             for emu in self.em.values() if isinstance(self.em, dict) else self.em:
                 if emu.name == name:
                     emu.start()
                     time.sleep(5)  # Wait for the emulator to start
+                    print(f"LD {name} started.")
+                    time.sleep(delay_between_starts)  # Delay before starting the next LD
                     return
             print(f"No LD found with name {name}")
         except Exception as e:

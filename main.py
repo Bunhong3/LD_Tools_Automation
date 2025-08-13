@@ -24,7 +24,7 @@ class MainWindow():
     def ld_task_stage(self, name, stage):
         if stage == "start":
             self.log(f"Starting LD with name: {name}")
-            self.em.start_ld(name)
+            self.em.start_ld(name, delay_between_starts=self.em.boot_delay)  # Pass the delay
             self.em.sort_window_ld()
             time.sleep(self.em.boot_delay)
         elif stage == "facebook":
@@ -52,15 +52,25 @@ class MainWindow():
 
             for stage in ["start", "facebook", "scroll", "close"]:
                 self.log(f"Stage: {stage.capitalize()} for batch {batch}")
-                threads = []
-                for name in batch:
-                    if not self.running_flag():
-                        break
-                    t = threading.Thread(target=self.ld_task_stage, args=(name, stage))
-                    t.start()
-                    threads.append(t)
-                for t in threads:
-                    t.join()
+                
+                if stage == "start":
+                    # Sequentially start LDs with delay
+                    for name in batch:
+                        if not self.running_flag():
+                            break
+                        self.ld_task_stage(name, stage)
+                        time.sleep(self.em.start_delay)  # Delay between starting each LD
+                else:
+                    # Use threads for other stages
+                    threads = []
+                    for name in batch:
+                        if not self.running_flag():
+                            break
+                        t = threading.Thread(target=self.ld_task_stage, args=(name, stage))
+                        t.start()
+                        threads.append(t)
+                    for t in threads:
+                        t.join()
 
 
 class LDManagerApp:
@@ -109,6 +119,11 @@ class LDManagerApp:
         ttkb.Label(self.settings_frame, text="Task Delay (s):").grid(row=0, column=4, padx=5, pady=5, sticky="w")
         self.task_delay = tk.IntVar(value=10)
         ttkb.Entry(self.settings_frame, textvariable=self.task_delay, width=5).grid(row=0, column=5, padx=5, pady=5)
+
+        # Row 0: Add Delay Between Starts
+        ttkb.Label(self.settings_frame, text="Delay Between Starts (s):").grid(row=0, column=6, padx=5, pady=5, sticky="w")
+        self.start_delay = tk.IntVar(value=10)
+        ttkb.Entry(self.settings_frame, textvariable=self.start_delay, width=5).grid(row=0, column=7, padx=5, pady=5)
 
         # Row 1: Close Delay, Scroll Duration, and Progress Bar
         ttkb.Label(self.settings_frame, text="Close Delay (s):").grid(row=1, column=0, padx=5, pady=5, sticky="w")
@@ -179,6 +194,7 @@ class LDManagerApp:
             "task_delay": self.task_delay.get(),
             "close_delay": self.close_delay.get(),
             "scroll_duration": self.scroll_duration.get(),
+            "start_delay": self.start_delay.get()  # Add start_delay
         }
         with open("settings.json", "w") as f:
             json.dump(settings, f)
@@ -189,17 +205,19 @@ class LDManagerApp:
             with open("settings.json", "r") as f:
                 settings = json.load(f)
                 self.parallel_ld.set(settings.get("parallel_ld", 2))
-                self.boot_delay.set(settings.get("boot_delay", 25))
-                self.task_delay.set(settings.get("task_delay", 15))
-                self.close_delay.set(settings.get("close_delay", 15))
+                self.boot_delay.set(settings.get("boot_delay", 5))
+                self.task_delay.set(settings.get("task_delay", 5))
+                self.close_delay.set(settings.get("close_delay", 5))
                 self.scroll_duration.set(settings.get("scroll_duration", 5))
+                self.start_delay.set(settings.get("start_delay", 0))  # Load start_delay
         except (FileNotFoundError, json.JSONDecodeError):
             self.log("Settings file not found or corrupted. Using default settings.")
             self.parallel_ld.set(2)
-            self.boot_delay.set(25)
-            self.task_delay.set(15)
-            self.close_delay.set(15)
+            self.boot_delay.set(5)
+            self.task_delay.set(5)
+            self.close_delay.set(5)
             self.scroll_duration.set(5)
+            self.start_delay.set(0)  # Default value for start_delay
 
     def start_automation(self):
         """Start the automation process."""
@@ -247,6 +265,7 @@ class LDManagerApp:
                 log_func=lambda msg: self.root.after(0, self.log, msg)
             )
             main_window.em.boot_delay = self.boot_delay.get()
+            main_window.em.start_delay = self.start_delay.get()  # Pass the delay
             main_window.em.task_delay = self.task_delay.get()
             main_window.em.close_delay = self.close_delay.get()
             main_window.scroll_duration = self.scroll_duration.get() * 60
