@@ -8,22 +8,20 @@ import tkinter as tk
 from src.control_ld import ControlEmulator
 import json
 from datetime import datetime
-from tkinter.scrolledtext import ScrolledText  # Import ScrolledText from tkinter
+from tkinter.scrolledtext import ScrolledText
 
 
 class MainWindow():
     def __init__(self, selected_ld_names, running_flag, ld_thread, log_func=print):
         self.em = ControlEmulator()
-        all_names = [emu.name for emu in self.em.list_thread.values()] if isinstance(self.em.list_thread, dict) else [emu.name for emu in self.em.list_thread]
-        # Filter and ensure unique LD names
+        all_names = [em.name for em in self.em.list_thread.values()] if isinstance(self.em.list_thread, dict) else [em.name for em in self.em.list_thread]
         self.thread_ld = list(set(name for name in all_names if name in self.em.name_to_serial and name in selected_ld_names))
         self.log = log_func
         self.running_flag = running_flag
-        self.ld_thread = ld_thread  # Use the value passed from the GUI
-        self.scroll_duration = 0  # Initialize to 0; will be set dynamically
+        self.ld_thread = ld_thread
+        self.scroll_duration = 0
 
     def ld_task_stage(self, name, stage):
-        """Perform a specific stage of the task for a given LD."""
         if stage == "start":
             self.log(f"Starting LD with name: {name}")
             self.em.start_ld(name)
@@ -35,7 +33,7 @@ class MainWindow():
             time.sleep(self.em.task_delay)
         elif stage == "scroll":
             self.log(f"Scrolling Facebook on LD {name} for {self.scroll_duration // 60} minutes")
-            self.em.scroll_facebook(name, duration_sec=self.scroll_duration)  # Use the user-defined duration
+            self.em.scroll_facebook(name, duration_sec=self.scroll_duration)
         elif stage == "close":
             self.log(f"Closing LD {name} after {self.em.close_delay}s delay...")
             time.sleep(self.em.close_delay)
@@ -49,11 +47,9 @@ class MainWindow():
             if not self.running_flag():
                 break
 
-            # Get the current batch of LDs and remove duplicates
             batch = self.thread_ld[batch_start:batch_start + self.ld_thread]
-            batch = list(set(batch))  # Remove duplicates
+            batch = list(set(batch))
 
-            # Process each stage in sequence
             for stage in ["start", "facebook", "scroll", "close"]:
                 self.log(f"Stage: {stage.capitalize()} for batch {batch}")
                 threads = []
@@ -72,16 +68,14 @@ class LDManagerApp:
         self.root = root
         self.root.title("LDPlayer Automation Manager")
         self.root.geometry("800x600")
-        self.style = ttkb.Style("cosmo")  # Use a modern theme (e.g., "cosmo", "darkly", etc.)
+        self.style = ttkb.Style("cosmo")
 
-        # Control Emulator
         self.emulator = ControlEmulator()
 
         # LD List Frame
         self.ld_frame = ttkb.LabelFrame(root, text="Available LDs", bootstyle="primary")
         self.ld_frame.pack(fill="x", padx=10, pady=5)
 
-        # LD List with Scrollbar
         self.ld_list_frame = ttkb.Frame(self.ld_frame)
         self.ld_list_frame.pack(fill="x", padx=5, pady=5)
 
@@ -97,38 +91,43 @@ class LDManagerApp:
         self.ld_list.pack(side="left", fill="x", expand=True)
 
         self.ld_list_scrollbar.config(command=self.ld_list.yview)
-
-        # Populate LD List
         self.populate_ld_list()
 
         # Task Settings Frame
         self.settings_frame = ttkb.LabelFrame(root, text="Task Settings", bootstyle="primary")
         self.settings_frame.pack(fill="x", padx=10, pady=5)
 
+        # Row 0: LDs in Parallel
         ttkb.Label(self.settings_frame, text="LDs in Parallel:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.parallel_ld = tk.IntVar(value=3)
         ttkb.Entry(self.settings_frame, textvariable=self.parallel_ld, width=5).grid(row=0, column=1, padx=5, pady=5)
 
+        # Row 1: Boot Delay
         ttkb.Label(self.settings_frame, text="Boot Delay (s):").grid(row=1, column=0, padx=5, pady=5, sticky="w")
         self.boot_delay = tk.IntVar(value=40)
         ttkb.Entry(self.settings_frame, textvariable=self.boot_delay, width=5).grid(row=1, column=1, padx=5, pady=5)
 
+        # Row 2: Task Delay, Close Delay, Scroll Duration side-by-side
         ttkb.Label(self.settings_frame, text="Task Delay (s):").grid(row=2, column=0, padx=5, pady=5, sticky="w")
         self.task_delay = tk.IntVar(value=10)
         ttkb.Entry(self.settings_frame, textvariable=self.task_delay, width=5).grid(row=2, column=1, padx=5, pady=5)
 
-        ttkb.Label(self.settings_frame, text="Close Delay (s):").grid(row=3, column=0, padx=5, pady=5, sticky="w")
+        ttkb.Label(self.settings_frame, text="Close Delay (s):").grid(row=2, column=2, padx=5, pady=5, sticky="w")
         self.close_delay = tk.IntVar(value=15)
-        ttkb.Entry(self.settings_frame, textvariable=self.close_delay, width=5).grid(row=3, column=1, padx=5, pady=5)
+        ttkb.Entry(self.settings_frame, textvariable=self.close_delay, width=5).grid(row=2, column=3, padx=5, pady=5)
 
-        # Add Scroll Duration Input
-        ttkb.Label(self.settings_frame, text="Scroll Duration (min):").grid(row=4, column=0, padx=5, pady=5, sticky="w")
-        self.scroll_duration = tk.IntVar(value=5)  # Default to 5 minutes
-        ttkb.Entry(self.settings_frame, textvariable=self.scroll_duration, width=5).grid(row=4, column=1, padx=5, pady=5)
+        ttkb.Label(self.settings_frame, text="Scroll Duration (min):").grid(row=2, column=4, padx=5, pady=5, sticky="w")
+        self.scroll_duration = tk.IntVar(value=5)
+        ttkb.Entry(self.settings_frame, textvariable=self.scroll_duration, width=5).grid(row=2, column=5, padx=5, pady=5)
 
         # Progress Bar
-        self.progress = ttkb.Progressbar(self.settings_frame, orient="horizontal", mode="determinate", bootstyle="success-striped")
-        self.progress.grid(row=5, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+        self.progress = ttkb.Progressbar(
+            self.settings_frame,
+            orient="horizontal",
+            mode="determinate",
+            bootstyle="success-striped"
+        )
+        self.progress.grid(row=3, column=0, columnspan=6, padx=5, pady=5, sticky="ew")
 
         # Control Buttons
         self.control_frame = ttkb.Frame(root)
@@ -144,24 +143,19 @@ class LDManagerApp:
         self.logs_frame = ttkb.LabelFrame(root, text="Logs", bootstyle="primary")
         self.logs_frame.pack(fill="both", expand=True, padx=10, pady=5)
 
-        self.logs_text = ScrolledText(self.logs_frame, state="disabled", wrap="word")  # Removed bootstyle
+        self.logs_text = ScrolledText(self.logs_frame, state="disabled", wrap="word")
         self.logs_text.pack(fill="both", expand=True, padx=5, pady=5)
 
-        # Automation Thread
         self.automation_thread = None
         self.running = False
-
-        # Load settings
         self.load_settings()
 
     def populate_ld_list(self):
-        """Populate the LD list with available LDs and their serials."""
         self.ld_list.delete(0, tk.END)
         for name, serial in self.emulator.name_to_serial.items():
             self.ld_list.insert(tk.END, f"{name} ({serial})")
 
     def log(self, message):
-        """Log a message to the logs text area."""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.logs_text.config(state="normal")
         self.logs_text.insert(tk.END, f"[{timestamp}] {message}\n")
@@ -169,29 +163,26 @@ class LDManagerApp:
         self.logs_text.config(state="disabled")
 
     def save_settings(self):
-        """Save user settings to a file."""
         settings = {
             "parallel_ld": self.parallel_ld.get(),
             "boot_delay": self.boot_delay.get(),
             "task_delay": self.task_delay.get(),
             "close_delay": self.close_delay.get(),
-            "scroll_duration": self.scroll_duration.get(),  # Save scroll duration
+            "scroll_duration": self.scroll_duration.get(),
         }
         with open("settings.json", "w") as f:
             json.dump(settings, f)
 
     def load_settings(self):
-        """Load user settings from a file."""
         try:
             with open("settings.json", "r") as f:
                 settings = json.load(f)
-                self.parallel_ld.set(settings.get("parallel_ld", 2))  # Default to 2 if missing
-                self.boot_delay.set(settings.get("boot_delay", 25))  # Default to 25 if missing
-                self.task_delay.set(settings.get("task_delay", 15))  # Default to 15 if missing
-                self.close_delay.set(settings.get("close_delay", 15))  # Default to 15 if missing
-                self.scroll_duration.set(settings.get("scroll_duration", 5))  # Default to 5 minutes if missing
+                self.parallel_ld.set(settings.get("parallel_ld", 2))
+                self.boot_delay.set(settings.get("boot_delay", 25))
+                self.task_delay.set(settings.get("task_delay", 15))
+                self.close_delay.set(settings.get("close_delay", 15))
+                self.scroll_duration.set(settings.get("scroll_duration", 5))
         except FileNotFoundError:
-            # If the file doesn't exist, use default values
             self.parallel_ld.set(2)
             self.boot_delay.set(25)
             self.task_delay.set(15)
@@ -199,7 +190,6 @@ class LDManagerApp:
             self.scroll_duration.set(5)
 
     def start_automation(self):
-        """Start the automation process."""
         selected_indices = self.ld_list.curselection()
         selected_ld_names = [self.ld_list.get(i).split(" (")[0] for i in selected_indices]
 
@@ -226,7 +216,6 @@ class LDManagerApp:
         self.automation_thread.start()
 
     def stop_automation(self):
-        """Stop the automation process."""
         if not Messagebox.yesno("Are you sure you want to stop the automation?", title="Confirm"):
             return
         self.running = False
@@ -239,13 +228,13 @@ class LDManagerApp:
             main_window = MainWindow(
                 selected_ld_names,
                 running_flag,
-                self.parallel_ld.get(),  # Pass the user-defined parallel LD count
+                self.parallel_ld.get(),
                 log_func=lambda msg: self.root.after(0, self.log, msg)
             )
             main_window.em.boot_delay = self.boot_delay.get()
             main_window.em.task_delay = self.task_delay.get()
             main_window.em.close_delay = self.close_delay.get()
-            main_window.scroll_duration = self.scroll_duration.get() * 60  # Convert minutes to seconds
+            main_window.scroll_duration = self.scroll_duration.get() * 60
             main_window.main()
         except Exception as e:
             self.root.after(0, self.log, f"Error: {e}")
@@ -257,8 +246,47 @@ class LDManagerApp:
             self.root.after(0, self.progress.stop)
 
 
+class YourClassName:
+    def __init__(self, em):
+        self.em = em
+
+        # Safely collect all thread names
+        if isinstance(self.em.list_thread, dict):
+            all_names = [thread.name for thread in self.em.list_thread.values()]
+        else:
+            all_names = [thread.name for thread in self.em.list_thread]
+
+        print("All Thread Names:", all_names)
+
+        # Continue your existing setup...
+        # Example: initialize UI, variables, etc.
+        self.setup_ui()
+
+    def setup_ui(self):
+        # Placeholder for your actual UI setup code
+        print("Setting up UI...")
+
+    # Other methods go here...
+    def example_method(self):
+        print("Example method running...")
+
+
+# Example usage
 if __name__ == "__main__":
-    root = ttkb.Window(themename="cosmo")  # Create a ttkbootstrap window
+    root = ttkb.Window(themename="cosmo")
     app = LDManagerApp(root)
     root.protocol("WM_DELETE_WINDOW", lambda: (app.save_settings(), root.destroy()))
     root.mainloop()
+
+    # Mock example for testing
+    class ThreadMock:
+        def __init__(self, name):
+            self.name = name
+
+    em_mock = type("EmMock", (), {})()
+    em_mock.list_thread = {
+        1: ThreadMock("Thread A"),
+        2: ThreadMock("Thread B")
+    }
+
+    app = YourClassName(em_mock)

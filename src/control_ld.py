@@ -7,7 +7,6 @@ import subprocess
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from src.install import *  # Assumes this imports `emulator`
 
-
 class ControlEmulator:
     def __init__(self):
         self.ld_dir = r"C:\LDPlayer\LDPlayer9"
