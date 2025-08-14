@@ -1,4 +1,6 @@
 from src.install import *
+import os
+
 class MainWindow():
     def __init__(self, selected_ld_names, running_flag, ld_thread, log_func=print):
         self.em = ControlEmulator()
@@ -175,6 +177,11 @@ class LDManagerApp:
         self.logs_text.config(state="disabled")
 
     def save_settings(self):
+        """Save settings to the config/settings.json file."""
+        config_dir = "./src/config"
+        os.makedirs(config_dir, exist_ok=True)  # Ensure the config folder exists
+        settings_path = os.path.join(config_dir, "settings.json")
+
         settings = {
             "parallel_ld": self.parallel_ld.get(),
             "boot_delay": self.boot_delay.get(),
@@ -183,13 +190,16 @@ class LDManagerApp:
             "scroll_duration": self.scroll_duration.get(),
             "start_delay": self.start_delay.get()  # Add start_delay
         }
-        with open("settings.json", "w") as f:
+        with open(settings_path, "w") as f:
             json.dump(settings, f)
 
     def load_settings(self):
-        """Load settings from a JSON file."""
+        """Load settings from the config/settings.json file."""
+        config_dir = "./src/config"
+        settings_path = os.path.join(config_dir, "settings.json")
+
         try:
-            with open("settings.json", "r") as f:
+            with open(settings_path, "r") as f:
                 settings = json.load(f)
                 self.parallel_ld.set(settings.get("parallel_ld", 2))
                 self.boot_delay.set(settings.get("boot_delay", 5))
