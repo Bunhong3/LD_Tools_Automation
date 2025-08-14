@@ -1,16 +1,4 @@
-import ttkbootstrap as ttkb
-from ttkbootstrap.constants import *
-from ttkbootstrap.dialogs import Messagebox
 from src.install import *
-import threading
-import time
-import tkinter as tk
-from src.control_ld import ControlEmulator
-import json
-from datetime import datetime
-from tkinter.scrolledtext import ScrolledText
-
-
 class MainWindow():
     def __init__(self, selected_ld_names, running_flag, ld_thread, log_func=print):
         self.em = ControlEmulator()
@@ -71,7 +59,6 @@ class MainWindow():
                         threads.append(t)
                     for t in threads:
                         t.join()
-
 
 class LDManagerApp:
     def __init__(self, root):
