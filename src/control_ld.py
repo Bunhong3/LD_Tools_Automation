@@ -13,10 +13,10 @@ class ControlEmulator:
         self.ld_dir = r"C:\LDPlayer\LDPlayer9"
         self.ld = emulator.LDPlayer(self.ld_dir)
         self.em = self.ld.emulators
-        self.list_thread = self.ld.emulators  # Might be dict or list
+        self.list_thread = self.ld.emulators
         self.fb = "com.facebook.katana"
         self.name_to_serial = {}
-
+        
         # Build a mapping from LD name to ADB serial/device
         for emu in self.em.values() if isinstance(self.em, dict) else self.em:
             # LDPlayer ADB serials are typically in the format 127.0.0.1:5555
@@ -26,7 +26,18 @@ class ControlEmulator:
                 self.name_to_serial[emu.name] = serial
             except (TypeError, ValueError):
                 print(f"Warning: No valid index found for LD {emu.name}")
-        print("LD name to serial mapping:", self.name_to_serial)
+
+    def is_ld_running(self, name):
+        """Check if LD player is currently running"""
+        try:
+            for emu in self.em.values() if isinstance(self.em, dict) else self.em:
+                if emu.name == name:
+                    # This is a placeholder - adjust based on your LDPlayer API
+                    # Most LDPlayer APIs have an is_running() method or similar
+                    return emu.is_running() if hasattr(emu, 'is_running') else False
+            return False
+        except Exception:
+            return False
 
     def _connect_adb(self, serial):
         """Ensure ADB is connected to this serial, searching for adb.exe if needed."""

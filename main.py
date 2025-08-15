@@ -83,12 +83,17 @@ class CheckboxTreeview(ttk.Treeview):
         self.checkboxes = {}
         self.tag_configure("checked", background="#e1f5fe")
         self.tag_configure("unchecked", background="white")
+        self.tag_configure("active", foreground="green")
+        self.tag_configure("inactive", foreground="red")
         self.bind("<Double-1>", self._on_double_click)
         
     def insert(self, parent, index, iid=None, **kwargs):
         item = super().insert(parent, index, iid, **kwargs)
         self.checkboxes[item] = False
-        self.item(item, tags=("unchecked",))
+        values = kwargs.get('values', [])
+        status = values[2] if len(values) > 2 else "Inactive"
+        tags = ("unchecked", "active") if status == "Active" else ("unchecked", "inactive")
+        self.item(item, tags=tags)
         return item
         
     def _on_double_click(self, event):
@@ -98,7 +103,10 @@ class CheckboxTreeview(ttk.Treeview):
             
     def toggle_checkbox(self, item):
         self.checkboxes[item] = not self.checkboxes[item]
-        self.item(item, tags=("checked",) if self.checkboxes[item] else ("unchecked",))
+        current_tags = list(self.item(item, "tags"))
+        new_tags = [t for t in current_tags if t not in ("checked", "unchecked")]
+        new_tags.append("checked" if self.checkboxes[item] else "unchecked")
+        self.item(item, tags=new_tags)
             
     def get_checked_items(self):
         return [item for item, checked in self.checkboxes.items() if checked]
@@ -107,18 +115,19 @@ class LDManagerApp:
     def __init__(self, root):
         self.root = root
         self.root.title("LDPlayer Automation Manager")
-        self.root.geometry("1100x700")
+        self.root.geometry("1200x750")  # Slightly wider to accommodate status column
         self.style = ttkb.Style("cosmo")
         self.root.grid_columnconfigure(0, weight=1)
         self.root.grid_rowconfigure(0, weight=1)
 
         self.emulator = ControlEmulator()
-        self.running_event = threading.Event()  # Thread-safe flag
+        self.running_event = threading.Event()
         self.schedule_thread = None
         self.schedule_running = False
         self.setup_ui()
         self.load_settings()
         self.populate_ld_table()
+        self.start_status_refresh()
 
     def setup_ui(self):
         self.main_container = ttkb.Frame(self.root)
@@ -134,7 +143,7 @@ class LDManagerApp:
         self.ld_controls = ttkb.Frame(self.ld_frame)
         self.ld_controls.pack(fill="x", pady=(0, 10))
 
-        self.refresh_btn = ttkb.Button(self.ld_controls, text="Refresh", command=self.populate_ld_table, bootstyle="info", width=12)
+        self.refresh_btn = ttkb.Button(self.ld_controls, text="Refresh", command=self.refresh_all, bootstyle="info", width=12)
         self.refresh_btn.pack(side="left", padx=2)
 
         self.select_all_btn = ttkb.Button(self.ld_controls, text="Select All", command=self.select_all, bootstyle="success", width=12)
@@ -143,15 +152,26 @@ class LDManagerApp:
         self.deselect_all_btn = ttkb.Button(self.ld_controls, text="Deselect All", command=self.deselect_all, bootstyle="danger", width=12)
         self.deselect_all_btn.pack(side="left", padx=2)
 
-        # Table
+        # Table with status column
         self.table_frame = ttkb.Frame(self.ld_frame, bootstyle="light")
         self.table_frame.pack(fill="both", expand=True)
 
-        self.ld_table = CheckboxTreeview(self.table_frame, columns=("name", "serial"), show="headings", selectmode="none", height=15, bootstyle="info")
+        self.ld_table = CheckboxTreeview(self.table_frame, 
+                                       columns=("name", "serial", "status"), 
+                                       show="headings", 
+                                       selectmode="none", 
+                                       height=15, 
+                                       bootstyle="info")
+        
+        # Configure columns
         self.ld_table.heading("name", text="LD Name", anchor="w")
-        self.ld_table.column("name", width=200, anchor="w")
+        self.ld_table.column("name", width=150, anchor="w")
+        
         self.ld_table.heading("serial", text="ADB Serial", anchor="w")
-        self.ld_table.column("serial", width=150, anchor="w")
+        self.ld_table.column("serial", width=120, anchor="w")
+        
+        self.ld_table.heading("status", text="Status", anchor="w")
+        self.ld_table.column("status", width=80, anchor="w")
 
         scrollbar = ttkb.Scrollbar(self.table_frame, orient="vertical", command=self.ld_table.yview)
         scrollbar.pack(side="right", fill="y")
@@ -249,13 +269,52 @@ class LDManagerApp:
         self.status_bar = ttkb.Label(self.root, text="Ready", bootstyle="inverse-info", padding=(10, 5))
         self.status_bar.pack(fill="x", side="bottom", padx=10, pady=(0, 10))
 
+    def refresh_all(self):
+        """Refresh both the LD list and their statuses"""
+        self.emulator = ControlEmulator()  # Reinitialize to get fresh data
+        self.populate_ld_table()
+
     def populate_ld_table(self):
         self.ld_table.delete(*self.ld_table.get_children())
         if not self.emulator.name_to_serial:
             self.log("No available LDs found.")
             return
+            
         for name, serial in self.emulator.name_to_serial.items():
-            self.ld_table.insert("", "end", values=(name, serial))
+            status = "Active" if self.emulator.is_ld_running(name) else "Inactive"
+            self.ld_table.insert("", "end", values=(name, serial, status))
+
+    def start_status_refresh(self):
+        """Start periodic status refresh every 5 seconds"""
+        self.refresh_status()
+        self.root.after(5000, self.start_status_refresh)
+
+    def refresh_status(self):
+        """Update the status of all LDs in the table"""
+        for item in self.ld_table.get_children():
+            name = self.ld_table.item(item)["values"][0]
+            new_status = "Active" if self.emulator.is_ld_running(name) else "Inactive"
+            
+            # Update the status value
+            current_values = list(self.ld_table.item(item)["values"])
+            if current_values[2] != new_status:
+                current_values[2] = new_status
+                self.ld_table.item(item, values=current_values)
+                
+                # Update the color tag
+                current_tags = list(self.ld_table.item(item, "tags"))
+                if new_status == "Active":
+                    if "inactive" in current_tags:
+                        current_tags.remove("inactive")
+                    if "active" not in current_tags:
+                        current_tags.append("active")
+                else:
+                    if "active" in current_tags:
+                        current_tags.remove("active")
+                    if "inactive" not in current_tags:
+                        current_tags.append("inactive")
+                
+                self.ld_table.item(item, tags=current_tags)
 
     def select_all(self):
         for item in self.ld_table.get_children():
