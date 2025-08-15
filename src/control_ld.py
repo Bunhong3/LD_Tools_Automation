@@ -2,6 +2,7 @@ import sys
 import os
 import time
 import subprocess
+import shutil
 
 # Ensure we can import emulator from your src
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -28,10 +29,20 @@ class ControlEmulator:
         print("LD name to serial mapping:", self.name_to_serial)
 
     def _connect_adb(self, serial):
-        """Ensure ADB is connected to this serial."""
-        result = subprocess.run(["adb", "connect", serial], capture_output=True, text=True)
-        if "unable to connect" in result.stdout.lower():
-            print(f"Failed to connect to {serial}: {result.stdout}")
+        """Ensure ADB is connected to this serial, searching for adb.exe if needed."""
+        adb_path = shutil.which("adb")
+        if not adb_path:
+            possible_paths = [
+                r"C:\LDPlayer\LDPlayer4.0\adb.exe",
+                r"C:\Program Files\LDPlayer\LDPlayer4.0\adb.exe",
+                r"C:\Program Files (x86)\LDPlayer\LDPlayer4.0\adb.exe"
+            ]
+            adb_path = next((p for p in possible_paths if os.path.exists(p)), None)
+        
+        if not adb_path:
+            raise FileNotFoundError("ADB executable not found. Please install LDPlayer or add adb to PATH.")
+
+        subprocess.run([adb_path, "connect", serial], check=True)
 
     def start_ld(self, name, delay_between_starts=10):
         """Start the LD emulator by name with a delay between starts."""

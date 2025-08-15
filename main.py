@@ -1,5 +1,6 @@
 from src.install import *
 import os
+import threading
 
 class MainWindow():
     def __init__(self, selected_ld_names, running_flag, ld_thread, log_func=print):
@@ -244,13 +245,48 @@ class LDManagerApp:
         )
         self.automation_thread.start()
 
+        self.opened_ld_names = selected_ld_names  # Store LDs that were started
+
     def stop_automation(self):
-        if not Messagebox.yesno("Are you sure you want to stop the automation?", title="Confirm"):
-            return
+        """Stop automation only if user confirms."""
+        try:
+            # Try ttkbootstrap's Messagebox
+            confirm_stop = Messagebox.yesno(
+                "Are you sure you want to stop the automation?",
+                title="Confirm"
+            )
+        except Exception:
+            # Fallback to tkinter's messagebox
+            from tkinter import messagebox
+            confirm_stop = messagebox.askyesno(
+                "Confirm",
+                "Are you sure you want to stop the automation?"
+            )
+
+        # Normalize the result (handles True/False or 'Yes'/'No')
+        if isinstance(confirm_stop, str):
+            confirm_stop = confirm_stop.lower() == "yes"
+
+        if not confirm_stop:
+            self.log("Stop automation canceled by user.")
+            return  # Do nothing if user clicked No
+
+        # Now stop automation
         self.running = False
         self.start_button.config(state="normal")
         self.stop_button.config(state="disabled")
         self.log("Stopping automation...")
+
+        def close_ld_with_delay():
+            for name in getattr(self, "opened_ld_names", []):
+                self.log(f"Closing LD {name}...")
+                self.emulator.quit_ld(name)
+                time.sleep(5)
+                self.log(f"LD {name} closed.")
+            self.root.after(0, self.log, "Automation stopped by user.")
+            self.root.after(0, self.progress.stop)
+
+        threading.Thread(target=close_ld_with_delay, daemon=True).start()
 
     def run_automation(self, selected_ld_names, running_flag):
         """Run the automation process."""
@@ -270,12 +306,11 @@ class LDManagerApp:
         except Exception as e:
             self.root.after(0, self.log, f"Error: {e}")
         finally:
+            # Reset state and update UI when the task is complete
             self.running = False
             self.root.after(0, self.start_button.config, {"state": "normal"})
             self.root.after(0, self.stop_button.config, {"state": "disabled"})
-            self.root.after(0, self.log, "Automation finished.")
-            self.root.after(0, self.progress.stop)
-
+            self.root.after(0, self.log, "Automation task completed successfully.")
 
 class YourClassName:
     def __init__(self, em):
