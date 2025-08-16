@@ -12,6 +12,7 @@ import json
 import time
 import schedule
 from tkinter import simpledialog
+from pathlib import Path
 
 class MainWindow():
     def __init__(self, selected_ld_names, running_flag, ld_thread, log_func=print):
@@ -124,8 +125,10 @@ class LDManagerApp:
         self.running_event = threading.Event()
         self.schedule_thread = None
         self.schedule_running = False
+        self.schedule_settings_file = Path("./src/config/setting_schedule.json")
         self.setup_ui()
         self.load_settings()
+        self.load_schedule_settings()  # Add this line
         self.populate_ld_table()
         self.start_status_refresh()
 
@@ -189,10 +192,10 @@ class LDManagerApp:
         batch_btn_frame = ttkb.Frame(self.batch_frame)
         batch_btn_frame.pack(fill="x", padx=5, pady=5)
         
-        self.batch_start_btn = ttkb.Button(batch_btn_frame, text="Start Selected", command=self.batch_start, bootstyle="success", width=15)
+        self.batch_start_btn = ttkb.Button(batch_btn_frame, text="Start LDs", command=self.batch_start, bootstyle="success", width=15)
         self.batch_start_btn.pack(side="left", padx=5)
         
-        self.batch_stop_btn = ttkb.Button(batch_btn_frame, text="Stop Selected", command=self.batch_stop, bootstyle="danger", width=15)
+        self.batch_stop_btn = ttkb.Button(batch_btn_frame, text="Stop LDs", command=self.batch_stop, bootstyle="danger", width=15)
         self.batch_stop_btn.pack(side="left", padx=5)
 
         # Settings frame
@@ -373,6 +376,47 @@ class LDManagerApp:
         except (FileNotFoundError, json.JSONDecodeError):
             self.log("Settings file not found or corrupted. Using default settings.")
 
+    def load_schedule_settings(self):
+        """Load schedule settings from JSON file"""
+        try:
+            if self.schedule_settings_file.exists():
+                with open(self.schedule_settings_file, 'r') as f:
+                    settings = json.load(f)
+                    self.schedule_time.set(settings.get('time', "09:00"))
+                    self.schedule_daily.set(settings.get('daily', True))
+                    
+                    # Restore selected LDs
+                    saved_selected = settings.get('selected_lds', [])
+                    for item in self.ld_table.get_children():
+                        ld_name = self.ld_table.item(item)['values'][0]
+                        if ld_name in saved_selected and not self.ld_table.checkboxes[item]:
+                            self.ld_table.toggle_checkbox(item)
+                            
+        except Exception as e:
+            self.log(f"Error loading schedule settings: {str(e)}")
+
+    def save_schedule_settings(self):
+        """Save current schedule settings to JSON file"""
+        try:
+            self.schedule_settings_file.parent.mkdir(parents=True, exist_ok=True)
+            selected_lds = [
+                self.ld_table.item(item)['values'][0] 
+                for item in self.ld_table.get_checked_items()
+            ]
+            
+            settings = {
+                'time': self.schedule_time.get(),
+                'daily': self.schedule_daily.get(),
+                'selected_lds': selected_lds,
+                'last_saved': datetime.now().isoformat()
+            }
+            
+            with open(self.schedule_settings_file, 'w') as f:
+                json.dump(settings, f, indent=2)
+                
+        except Exception as e:
+            self.log(f"Error saving schedule settings: {str(e)}")
+
     def start_automation(self):
         selected_items = self.ld_table.get_checked_items()
         selected_ld_names = [self.ld_table.item(item)["values"][0] for item in selected_items]
@@ -486,35 +530,75 @@ class LDManagerApp:
             self.start_schedule()
 
     def start_schedule(self):
+        """Enhanced schedule starter with validation"""
+        # Validate time format first
         try:
-            schedule_time = self.schedule_time.get()
-            # Validate time format
-            datetime.strptime(schedule_time, "%H:%M")
+            datetime.strptime(self.schedule_time.get(), "%H:%M")
         except ValueError:
             Messagebox.show_error("Invalid time format. Please use HH:MM.", title="Error")
             return
             
+        # Check if any LDs are selected
+        selected_items = self.ld_table.get_checked_items()
+        if not selected_items:
+            Messagebox.show_error(
+                "Please select at least one LD Player before scheduling.\n\n"
+                "Tip: Double-click LD names to select them.",
+                title="No LDs Selected"
+            )
+            return
+            
+        # Save settings before activating
+        self.save_schedule_settings()
+        
+        # Clear any existing schedule
+        schedule.clear()
+        
+        # Set up new schedule
+        schedule_time = self.schedule_time.get()
         if self.schedule_daily.get():
             schedule.every().day.at(schedule_time).do(self.run_scheduled_task)
-            self.log(f"Daily schedule set for {schedule_time}")
+            self.log(f"Daily schedule set for {schedule_time} (Selected LDs: {len(selected_items)})")
         else:
-            # For one-time scheduling
             schedule.every().day.at(schedule_time).do(self.run_scheduled_task).tag('one_time')
-            self.log(f"One-time schedule set for {schedule_time}")
+            self.log(f"One-time schedule set for {schedule_time} (Selected LDs: {len(selected_items)})")
             
+        # Update UI
         self.schedule_running = True
-        self.schedule_enable_btn.config(text="Disable Schedule", bootstyle="danger")
+        self.schedule_enable_btn.config(
+            text="Disable Schedule", 
+            bootstyle="danger",
+            command=self.stop_schedule
+        )
         
-        # Start the schedule thread if not already running
+        # Visual indicator in table
+        for item in self.ld_table.get_children():
+            tags = list(self.ld_table.item(item, "tags"))
+            if self.ld_table.checkboxes[item]:
+                if "scheduled" not in tags:
+                    tags.append("scheduled")
+            self.ld_table.item(item, tags=tags)
+        
+        # Start scheduler thread if needed
         if not self.schedule_thread or not self.schedule_thread.is_alive():
             self.schedule_thread = threading.Thread(target=self.run_scheduler, daemon=True)
             self.schedule_thread.start()
 
     def stop_schedule(self):
+        """Enhanced schedule stopper"""
         schedule.clear()
         self.schedule_running = False
-        self.schedule_enable_btn.config(text="Enable Schedule", bootstyle="info")
+        self.schedule_enable_btn.config(
+            text="Enable Schedule", 
+            bootstyle="info",
+            command=self.start_schedule
+        )
         self.log("Scheduling disabled")
+        
+        # Remove visual indicators
+        for item in self.ld_table.get_children():
+            tags = [t for t in self.ld_table.item(item, "tags") if t != "scheduled"]
+            self.ld_table.item(item, tags=tags)
 
     def run_scheduler(self):
         while self.schedule_running:
