@@ -16,6 +16,10 @@ class ControlEmulator:
         self.list_thread = self.ld.emulators
         self.fb = "com.facebook.katana"
         self.name_to_serial = {}
+        self.boot_delay = 40
+        self.task_delay = 10
+        self.start_delay = 10
+        self.close_delay = 15
         
         # Build a mapping from LD name to ADB serial/device
         for emu in self.em.values() if isinstance(self.em, dict) else self.em:
@@ -106,7 +110,7 @@ class ControlEmulator:
             print(f"Failed to launch Facebook on LD {name}: {e}")
             print(f"Ensure that the emulator with serial {serial} is running and connected to ADB.")
 
-    def scroll_facebook(self, name, duration_sec=900):
+    def scroll_facebook(self, name, duration_sec=900, pause_event=None, running_flag=None):
         """Simulate smoother scrolling on Facebook for the specified duration."""
         serial = self.name_to_serial.get(name, name)
         if not serial:
@@ -117,6 +121,12 @@ class ControlEmulator:
         start_time = time.time()
         try:
             while time.time() - start_time < duration_sec:
+                if running_flag and not running_flag():
+                    break
+                if pause_event and not pause_event.is_set():
+                    time.sleep(0.5)
+                    continue
+                
                 # Perform a smooth swipe gesture
                 subprocess.run([
                     "adb", "-s", serial,
