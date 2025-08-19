@@ -1,4 +1,3 @@
-from src.install import *
 import os
 import threading
 import tkinter as tk
@@ -11,14 +10,157 @@ from datetime import datetime
 import json
 import time
 import schedule
-from tkinter import simpledialog
 from pathlib import Path
+import subprocess
+import shutil
+import psutil
+import random
+import emulator
+from emulator import LDPlayer
+
+# Add the parent directory to the Python path
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+class ControlEmulator:
+    def __init__(self):
+        self.ld_dir = r"C:\LDPlayer\LDPlayer9"
+        self.ld = emulator.LDPlayer(self.ld_dir)
+        self.em = self.ld.emulators
+        self.list_thread = self.ld.emulators
+        self.fb = "com.facebook.katana"
+        self.name_to_serial = {}
+        self.boot_delay = 20
+        self.task_delay = 10
+        self.start_delay = 10
+        self.close_delay = 15
+        self._build_serial_mapping()
+
+    def _build_serial_mapping(self):
+        for emu in self.em.values() if isinstance(self.em, dict) else self.em:
+            try:
+                index = int(getattr(emu, "index", 0))
+                serial = f"emulator-{5554 + (index * 2)}"
+                self.name_to_serial[emu.name] = serial
+            except Exception as e:
+                print(f"Error mapping serial for {emu.name}: {str(e)}")
+
+    def is_ld_running(self, name):
+        try:
+            result = subprocess.run(["adb", "devices"], capture_output=True, text=True)
+            serial = self.name_to_serial.get(name)
+            return serial and serial in result.stdout
+        except Exception:
+            return False
+
+    def _connect_adb(self, serial):
+        adb_path = shutil.which("adb")
+        if not adb_path:
+            possible_paths = [
+                r"C:\LDPlayer\LDPlayer4.0\adb.exe",
+                r"C:\Program Files\LDPlayer\LDPlayer4.0\adb.exe",
+                r"C:\Program Files (x86)\LDPlayer\LDPlayer4.0\adb.exe"
+            ]
+            adb_path = next((p for p in possible_paths if os.path.exists(p)), None)
+        
+        if not adb_path:
+            raise FileNotFoundError("ADB executable not found. Please install LDPlayer or add adb to PATH.")
+
+        subprocess.run([adb_path, "connect", serial], check=True)
+
+    def start_ld(self, name, delay_between_starts=10):
+        try:
+            for emu in self.em.values() if isinstance(self.em, dict) else self.em:
+                if emu.name == name:
+                    emu.start()
+                    time.sleep(5)
+                    print(f"LD {name} started.")
+                    time.sleep(delay_between_starts)
+                    return
+            print(f"No LD found with name {name}")
+        except Exception as e:
+            print(f"Error starting LD {name}: {e}")
+
+    def quit_ld(self, name):
+        try:
+            for emu in self.em.values() if isinstance(self.em, dict) else self.em:
+                if emu.name == name:
+                    emu.quit()
+                    return
+            print(f"No LD found with name {name}")
+        except Exception as e:
+            print(f"Error quitting LD {name}: {e}")
+
+    def sort_window_ld(self):
+        self.ld.sort_window()
+
+    def open_facebook(self, name):
+        serial = self.name_to_serial.get(name, name)
+        if not serial:
+            print(f"No serial found for {name}")
+            return
+
+        self._connect_adb(serial)
+        subprocess.run(["adb", "-s", serial, "shell", "input", "keyevent", "82"], check=False)
+
+        try:
+            subprocess.run([
+                "adb", "-s", serial, "shell", "monkey",
+                "-p", self.fb,
+                "-c", "android.intent.category.LAUNCHER", "1"
+            ], check=True)
+            print(f"Facebook app launched on LD {name}")
+        except subprocess.CalledProcessError as e:
+            print(f"Failed to launch Facebook on LD {name}: {e}")
+            print(f"Ensure that the emulator with serial {serial} is running and connected to ADB.")
+
+    def scroll_facebook(self, name, duration_sec=900, pause_event=None, running_flag=None):
+        serial = self.name_to_serial.get(name, name)
+        if not serial:
+            print(f"No serial found for {name}")
+            return
+
+        self._connect_adb(serial)
+        start_time = time.time()
+        
+        try:
+            while time.time() - start_time < duration_sec:
+                if running_flag and not running_flag():
+                    break
+                if pause_event and not pause_event.is_set():
+                    time.sleep(0.5)
+                    continue
+                
+                scroll_duration = random.uniform(300, 800)
+                start_y = random.randint(800, 1000)
+                end_y = random.randint(300, 500)
+                
+                subprocess.run([
+                    "adb", "-s", serial,
+                    "shell", "input", "swipe", 
+                    "300", str(start_y), 
+                    "300", str(end_y), 
+                    str(int(scroll_duration))
+                ], check=True)
+                
+                time.sleep(random.uniform(1, 3))
+                
+        except Exception as e:
+            print(f"Error scrolling on {name}: {str(e)}")
+
+    def is_emulator_connected(self, serial):
+        result = subprocess.run(["adb", "devices"], capture_output=True, text=True)
+        return serial in result.stdout
+
+    def ld_task(self, name):
+        serial = self.name_to_serial.get(name)
+        if not self.is_emulator_connected(serial):
+            return
 
 class MainWindow():
     def __init__(self, selected_ld_names, running_flag, ld_thread, log_func=print, start_same_time=False):
         self.em = ControlEmulator()
-        all_names = [em.name for em in self.em.list_thread.values()] if isinstance(self.em.list_thread, dict) else [em.name for em in self.em.list_thread]
-        self.thread_ld = list(set(name for name in all_names if name in self.em.name_to_serial and name in selected_ld_names))
+        self.thread_ld = [name for name in selected_ld_names if name in self.em.name_to_serial]
         self.log = log_func
         self.running_flag = running_flag
         self.ld_thread = ld_thread
@@ -30,30 +172,29 @@ class MainWindow():
     def check_paused(self):
         """Check if operations should be paused - blocks if paused"""
         while not self.pause_event.is_set() and self.running_flag():
-            time.sleep(0.5)  # Small sleep to prevent CPU overload
-        return not self.running_flag()  # Return True if we should stop
+            time.sleep(0.5)
+        return not self.running_flag()
 
     def ld_task_stage(self, name, stage):
         if not self.running_flag():
             return
         
-        if self.check_paused():  # This will block if paused
+        if self.check_paused():
             return
         
         if stage == "start":
-            self.log(f"Starting LD with name: {name}")
+            self.log(f"Starting LD: {name}")
             self.em.start_ld(name, delay_between_starts=self.em.boot_delay)
-            self.em.sort_window_ld()
             time.sleep(self.em.boot_delay)
         elif stage == "facebook":
-            self.log(f"Opening Facebook on LD {name}")
+            self.log(f"Opening Facebook on LD: {name}")
             self.em.open_facebook(name)
-            time.sleep(self.em.task_delay)
         elif stage == "scroll":
-            self.log(f"Scrolling Facebook on LD {name} for {self.scroll_duration // 60} minutes")
-            self.em.scroll_facebook(name, duration_sec=self.scroll_duration, pause_event=self.pause_event, running_flag=self.running_flag)
+            self.log(f"Scrolling Facebook on LD: {name} for {self.scroll_duration // 60} minutes")
+            self.em.scroll_facebook(name, duration_sec=self.scroll_duration, 
+                                   pause_event=self.pause_event, running_flag=self.running_flag)
         elif stage == "close":
-            self.log(f"Closing LD {name} after {self.em.close_delay}s delay...")
+            self.log(f"Closing LD: {name}")
             time.sleep(self.em.close_delay)
             self.em.quit_ld(name)
 
@@ -66,43 +207,32 @@ class MainWindow():
                 break
 
             batch = self.thread_ld[batch_start:batch_start + self.ld_thread]
-            batch = list(set(batch))
+            self.log(f"Processing batch: {batch}")
 
             for stage in ["start", "facebook", "scroll", "close"]:
                 if not self.running_flag():
                     break
 
-                self.log(f"Stage: {stage.capitalize()} for batch {batch}")
+                self.log(f"Stage: {stage.capitalize()}")
                 
-                if stage == "start":
-                    if self.start_same_time:
-                        threads = []
-                        for name in batch:
-                            if not self.running_flag():
-                                break
-                            t = threading.Thread(target=lambda n=name: self.running_flag() and self.ld_task_stage(n, stage))
-                            t.start()
-                            threads.append(t)
-                            self.log(f"Starting LD: {name} (simultaneously)")
-                        for t in threads:
-                            t.join()
-                    else:
-                        for name in batch:
-                            if not self.running_flag():
-                                break
-                            self.ld_task_stage(name, stage)
-                            time.sleep(self.em.start_delay)
-                            self.log(f"Started LD: {name} (with delay)")
+                if stage == "start" and not self.start_same_time:
+                    for name in batch:
+                        if not self.running_flag():
+                            break
+                        self.ld_task_stage(name, stage)
+                        time.sleep(self.em.start_delay)
                 else:
                     threads = []
                     for name in batch:
                         if not self.running_flag():
                             break
-                        t = threading.Thread(target=lambda n=name: self.running_flag() and self.ld_task_stage(n, stage))
+                        t = threading.Thread(target=self.ld_task_stage, args=(name, stage))
+                        t.daemon = True
                         t.start()
                         threads.append(t)
+                    
                     for t in threads:
-                        t.join()
+                        t.join(timeout=300)  # 5 minute timeout
 
 class CheckboxTreeview(ttk.Treeview):
     def __init__(self, master=None, **kwargs):
@@ -113,6 +243,7 @@ class CheckboxTreeview(ttk.Treeview):
         self.tag_configure("active", foreground="green")
         self.tag_configure("inactive", foreground="red")
         self.tag_configure("paused", foreground="orange")
+        self.tag_configure("scheduled", foreground="blue")
         self.bind("<Double-1>", self._on_double_click)
         
     def insert(self, parent, index, iid=None, **kwargs):
@@ -143,7 +274,7 @@ class LDManagerApp:
     def __init__(self, root):
         self.root = root
         self.root.title("LDPlayer Automation Manager")
-        self.root.geometry("1200x750")
+        self.root.geometry("1100x750")
         self.style = ttkb.Style("cosmo")
         self.root.grid_columnconfigure(0, weight=1)
         self.root.grid_rowconfigure(0, weight=1)
@@ -154,7 +285,7 @@ class LDManagerApp:
         self.pause_event.set()  # Start unpaused
         self.schedule_thread = None
         self.schedule_running = False
-        self.schedule_settings_file = Path("./src/config/setting_schedule.json")
+        self.schedule_settings_file = Path("./config/setting_schedule.json")
         
         # Initialize settings variables
         self.parallel_ld = ttkb.IntVar(value=3)
@@ -190,7 +321,14 @@ class LDManagerApp:
         self.refresh_btn = ttkb.Button(self.ld_controls, text="Refresh", command=self.refresh_all, bootstyle="info", width=12)
         self.refresh_btn.pack(side="left", padx=2)
 
-        self.select_all_btn = ttkb.Button(self.ld_controls, text="Select All", command=self.select_all, bootstyle="success", width=12)
+        # Update "Select All" button
+        self.select_all_btn = ttkb.Button(
+            self.ld_controls, 
+            text="Select All", 
+            command=self.select_all, 
+            bootstyle="primary",  # Change to blue
+            width=12
+        )
         self.select_all_btn.pack(side="left", padx=2)
 
         self.deselect_all_btn = ttkb.Button(self.ld_controls, text="Deselect All", command=self.deselect_all, bootstyle="danger", width=12)
@@ -200,12 +338,8 @@ class LDManagerApp:
         self.table_frame = ttkb.Frame(self.ld_frame, bootstyle="light")
         self.table_frame.pack(fill="both", expand=True)
 
-        self.ld_table = CheckboxTreeview(self.table_frame, 
-                                       columns=("name", "serial", "status"), 
-                                       show="headings", 
-                                       selectmode="none", 
-                                       height=15, 
-                                       bootstyle="info")
+        columns = ("name", "serial", "status")
+        self.ld_table = CheckboxTreeview(self.table_frame, columns=columns, show="headings", selectmode="none", height=15)
         
         # Configure columns
         self.ld_table.heading("name", text="LD Name", anchor="w")
@@ -233,7 +367,14 @@ class LDManagerApp:
         batch_btn_frame = ttkb.Frame(self.batch_frame)
         batch_btn_frame.pack(fill="x", padx=5, pady=5)
         
-        self.batch_start_btn = ttkb.Button(batch_btn_frame, text="Start LDs", command=self.batch_start, bootstyle="success", width=15)
+        # Update "Start LDs" button
+        self.batch_start_btn = ttkb.Button(
+            batch_btn_frame, 
+            text="Start LDs", 
+            command=self.batch_start, 
+            bootstyle="primary",  # Change to blue
+            width=15
+        )
         self.batch_start_btn.pack(side="left", padx=5)
         
         self.batch_stop_btn = ttkb.Button(batch_btn_frame, text="Stop LDs", command=self.batch_stop, bootstyle="danger", width=15)
@@ -247,29 +388,25 @@ class LDManagerApp:
         settings_grid.pack(fill="x", padx=5, pady=5)
 
         ttkb.Label(settings_grid, text="LDs in Parallel:", bootstyle="dark").grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        ttkb.Entry(settings_grid, textvariable=self.parallel_ld, width=5, bootstyle="info").grid(row=0, column=1, padx=5, pady=5, sticky="w")
+        ttkb.Entry(settings_grid, textvariable=self.parallel_ld, width=5).grid(row=0, column=1, padx=5, pady=5, sticky="w")
 
         ttkb.Label(settings_grid, text="Boot Delay (s):", bootstyle="dark").grid(row=0, column=2, padx=5, pady=5, sticky="w")
-        ttkb.Entry(settings_grid, textvariable=self.boot_delay, width=5, bootstyle="info").grid(row=0, column=3, padx=5, pady=5, sticky="w")
+        ttkb.Entry(settings_grid, textvariable=self.boot_delay, width=5).grid(row=0, column=3, padx=5, pady=5, sticky="w")
 
         ttkb.Label(settings_grid, text="Task Delay (s):", bootstyle="dark").grid(row=1, column=0, padx=5, pady=5, sticky="w")
-        ttkb.Entry(settings_grid, textvariable=self.task_delay, width=5, bootstyle="info").grid(row=1, column=1, padx=5, pady=5, sticky="w")
+        ttkb.Entry(settings_grid, textvariable=self.task_delay, width=5).grid(row=1, column=1, padx=5, pady=5, sticky="w")
 
         ttkb.Label(settings_grid, text="Start Delay (s):", bootstyle="dark").grid(row=1, column=2, padx=5, pady=5, sticky="w")
-        ttkb.Entry(settings_grid, textvariable=self.start_delay, width=5, bootstyle="info").grid(row=1, column=3, padx=5, pady=5, sticky="w")
+        ttkb.Entry(settings_grid, textvariable=self.start_delay, width=5).grid(row=1, column=3, padx=5, pady=5, sticky="w")
 
         ttkb.Label(settings_grid, text="Close Delay (s):", bootstyle="dark").grid(row=2, column=0, padx=5, pady=5, sticky="w")
-        ttkb.Entry(settings_grid, textvariable=self.close_delay, width=5, bootstyle="info").grid(row=2, column=1, padx=5, pady=5, sticky="w")
+        ttkb.Entry(settings_grid, textvariable=self.close_delay, width=5).grid(row=2, column=1, padx=5, pady=5, sticky="w")
 
         ttkb.Label(settings_grid, text="Scroll Duration (min):", bootstyle="dark").grid(row=2, column=2, padx=5, pady=5, sticky="w")
-        ttkb.Entry(settings_grid, textvariable=self.scroll_duration, width=5, bootstyle="info").grid(row=2, column=3, padx=5, pady=5, sticky="w")
+        ttkb.Entry(settings_grid, textvariable=self.scroll_duration, width=5).grid(row=2, column=3, padx=5, pady=5, sticky="w")
 
         ttkb.Label(settings_grid, text="Start LDs Simultaneously:", bootstyle="dark").grid(row=3, column=0, padx=5, pady=5, sticky="w")
-        ttkb.Checkbutton(
-            settings_grid, 
-            variable=self.start_same_time, 
-            bootstyle="info-round-toggle"
-        ).grid(row=3, column=1, padx=5, pady=5, sticky="w")
+        ttkb.Checkbutton(settings_grid, variable=self.start_same_time, bootstyle="round-toggle").grid(row=3, column=1, padx=5, pady=5, sticky="w")
 
         self.progress = ttkb.Progressbar(settings_grid, orient="horizontal", mode="determinate", bootstyle="success-striped", length=400)
         self.progress.grid(row=4, column=0, columnspan=4, sticky="ew", padx=5, pady=10)
@@ -282,11 +419,9 @@ class LDManagerApp:
         schedule_grid.pack(fill="x", padx=5, pady=5)
         
         ttkb.Label(schedule_grid, text="Schedule Time:", bootstyle="dark").grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        self.schedule_time = ttkb.StringVar(value="09:00")
-        ttkb.Entry(schedule_grid, textvariable=self.schedule_time, width=10, bootstyle="info").grid(row=0, column=1, padx=5, pady=5, sticky="w")
+        ttkb.Entry(schedule_grid, textvariable=self.schedule_time, width=10).grid(row=0, column=1, padx=5, pady=5, sticky="w")
         
-        self.schedule_daily = ttkb.BooleanVar(value=True)
-        ttkb.Checkbutton(schedule_grid, text="Daily", variable=self.schedule_daily, bootstyle="info-round-toggle").grid(row=0, column=2, padx=5, pady=5, sticky="w")
+        ttkb.Checkbutton(schedule_grid, text="Daily", variable=self.schedule_daily, bootstyle="round-toggle").grid(row=0, column=2, padx=5, pady=5, sticky="w")
         
         self.schedule_enable_btn = ttkb.Button(schedule_grid, text="Enable Schedule", command=self.toggle_schedule, bootstyle="info", width=15)
         self.schedule_enable_btn.grid(row=0, column=3, padx=5, pady=5, sticky="e")
@@ -312,7 +447,7 @@ class LDManagerApp:
         self.logs_text.pack(fill="both", expand=True)
 
         # Status bar
-        self.status_bar = ttkb.Label(self.root, text="Ready", bootstyle="inverse-info", padding=(10, 5))
+        self.status_bar = ttkb.Label(self.root, text="Ready", bootstyle="inverse-dark", padding=(10, 5))
         self.status_bar.pack(fill="x", side="bottom", padx=10, pady=(0, 10))
 
     def toggle_pause(self):
@@ -342,6 +477,7 @@ class LDManagerApp:
         """Refresh both the LD list and their statuses"""
         self.emulator = ControlEmulator()
         self.populate_ld_table()
+        self.log("Refreshed LD player list")
 
     def populate_ld_table(self):
         self.ld_table.delete(*self.ld_table.get_children())
@@ -400,14 +536,17 @@ class LDManagerApp:
         self.logs_text.config(state="normal")
         self.logs_text.insert(tk.END, f"[{timestamp}] {message}\n")
         self.logs_text.see(tk.END)
-        lines = self.logs_text.get("1.0", tk.END).splitlines()
-        if len(lines) > 100:
-            self.logs_text.delete("1.0", f"{len(lines) - 100}.0")
+        # Limit log size to 100 lines
+        lines = self.logs_text.get("1.0", tk.END).count('\n')
+        if lines > 100:
+            self.logs_text.delete("1.0", f"{lines - 100}.0")
         self.logs_text.config(state="disabled")
-        self.status_bar.config(text=message[:100] + "..." if len(message) > 100 else message)
+        # Update status bar with truncated message if needed
+        status_msg = message[:100] + "..." if len(message) > 100 else message
+        self.status_bar.config(text=status_msg)
 
     def save_settings(self):
-        config_dir = "./src/config"
+        config_dir = "./config"
         os.makedirs(config_dir, exist_ok=True)
         settings_path = os.path.join(config_dir, "settings.json")
         settings = {
@@ -422,25 +561,26 @@ class LDManagerApp:
             "start_same_time": self.start_same_time.get()
         }
         with open(settings_path, "w") as f:
-            json.dump(settings, f)
+            json.dump(settings, f, indent=2)
 
     def load_settings(self):
-        config_dir = "./src/config"
+        config_dir = "./config"
         settings_path = os.path.join(config_dir, "settings.json")
         try:
-            with open(settings_path, "r") as f:
-                settings = json.load(f)
-                self.parallel_ld.set(settings.get("parallel_ld", 3))
-                self.boot_delay.set(settings.get("boot_delay", 40))
-                self.task_delay.set(settings.get("task_delay", 10))
-                self.close_delay.set(settings.get("close_delay", 15))
-                self.scroll_duration.set(settings.get("scroll_duration", 5))
-                self.start_delay.set(settings.get("start_delay", 10))
-                self.schedule_time.set(settings.get("schedule_time", "09:00"))
-                self.schedule_daily.set(settings.get("schedule_daily", True))
-                self.start_same_time.set(settings.get("start_same_time", False))
+            if os.path.exists(settings_path):
+                with open(settings_path, "r") as f:
+                    settings = json.load(f)
+                    self.parallel_ld.set(settings.get("parallel_ld", 3))
+                    self.boot_delay.set(settings.get("boot_delay", 40))
+                    self.task_delay.set(settings.get("task_delay", 10))
+                    self.close_delay.set(settings.get("close_delay", 15))
+                    self.scroll_duration.set(settings.get("scroll_duration", 5))
+                    self.start_delay.set(settings.get("start_delay", 10))
+                    self.schedule_time.set(settings.get("schedule_time", "09:00"))
+                    self.schedule_daily.set(settings.get("schedule_daily", True))
+                    self.start_same_time.set(settings.get("start_same_time", False))
         except (FileNotFoundError, json.JSONDecodeError):
-            self.log("Settings file not found or corrupted. Using default settings.")
+            self.log("Using default settings")
 
     def load_schedule_settings(self):
         """Load schedule settings from JSON file"""
@@ -504,6 +644,9 @@ class LDManagerApp:
         threading.Thread(target=self.run_automation, args=(selected_ld_names,), daemon=True).start()
 
     def stop_automation(self):
+        if not self.running_event.is_set():
+            return
+            
         confirm_stop = Messagebox.yesno("Are you sure you want to stop the automation?", title="Confirm")
         if confirm_stop == "No":
             self.log("Stop automation canceled by user.")
@@ -520,10 +663,9 @@ class LDManagerApp:
             for name in getattr(self, "opened_ld_names", []):
                 self.log(f"Closing LD {name}...")
                 self.emulator.quit_ld(name)
-                time.sleep(5)
-                self.log(f"LD {name} closed.")
+                time.sleep(2)
             self.root.after(0, self.log, "Automation stopped by user.")
-            self.root.after(0, self.progress.stop)
+            self.root.after(0, lambda: self.progress.config(value=0))
 
         threading.Thread(target=close_ld_with_delay, daemon=True).start()
 
@@ -566,13 +708,9 @@ class LDManagerApp:
             if self.start_same_time.get():
                 threads = []
                 for name in selected_ld_names:
-                    if not self.running_event.is_set():
-                        break
-                    if not self.pause_event.is_set():
-                        time.sleep(0.5)
-                        continue
                     try:
                         t = threading.Thread(target=self.emulator.start_ld, args=(name, 0))
+                        t.daemon = True
                         t.start()
                         threads.append(t)
                         self.log(f"Starting LD: {name} (simultaneously)")
@@ -580,22 +718,19 @@ class LDManagerApp:
                         self.log(f"Error starting LD {name}: {str(e)}")
                 
                 for t in threads:
-                    t.join()
+                    t.join(timeout=60)
             else:
                 for name in selected_ld_names:
-                    if not self.running_event.is_set():
-                        break
-                    if not self.pause_event.is_set():
-                        time.sleep(0.5)
-                        continue
                     try:
-                        self.emulator.start_ld(name, delay_between_starts=self.boot_delay.get())
-                        self.log(f"Started LD: {name} (with delay)")
+                        success = self.emulator.start_ld(name, delay_between_starts=self.boot_delay.get())
+                        if success:
+                            self.log(f"Started LD: {name} (with delay)")
+                        else:
+                            self.log(f"Failed to start LD: {name}")
                     except Exception as e:
                         self.log(f"Error starting LD {name}: {str(e)}")
                     time.sleep(self.boot_delay.get())
                 
-        self.running_event.set()
         threading.Thread(target=start_lds, daemon=True).start()
 
     def batch_stop(self):
@@ -611,11 +746,9 @@ class LDManagerApp:
             if self.start_same_time.get():
                 threads = []
                 for name in selected_ld_names:
-                    if not self.pause_event.is_set():
-                        time.sleep(0.5)
-                        continue
                     try:
                         t = threading.Thread(target=self.emulator.quit_ld, args=(name,))
+                        t.daemon = True
                         t.start()
                         threads.append(t)
                         self.log(f"Stopping LD: {name} (simultaneously)")
@@ -623,15 +756,15 @@ class LDManagerApp:
                         self.log(f"Error stopping LD {name}: {str(e)}")
                 
                 for t in threads:
-                    t.join()
+                    t.join(timeout=30)
             else:
                 for name in selected_ld_names:
-                    if not self.pause_event.is_set():
-                        time.sleep(0.5)
-                        continue
                     try:
-                        self.emulator.quit_ld(name)
-                        self.log(f"Stopped LD: {name}")
+                        success = self.emulator.quit_ld(name)
+                        if success:
+                            self.log(f"Stopped LD: {name}")
+                        else:
+                            self.log(f"Failed to stop LD: {name}")
                     except Exception as e:
                         self.log(f"Error stopping LD {name}: {str(e)}")
                     time.sleep(2)
@@ -727,5 +860,11 @@ class LDManagerApp:
 if __name__ == "__main__":
     root = ttkb.Window(themename="cosmo")
     app = LDManagerApp(root)
-    root.protocol("WM_DELETE_WINDOW", lambda: (app.save_settings(), root.destroy()))
+    
+    def on_closing():
+        app.save_settings()
+        app.running_event.clear()
+        root.destroy()
+    
+    root.protocol("WM_DELETE_WINDOW", on_closing)
     root.mainloop()
