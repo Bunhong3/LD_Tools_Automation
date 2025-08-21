@@ -76,6 +76,9 @@ class ControlEmulator:
                     time.sleep(5)
                     print(f"LD {name} started.")
                     time.sleep(delay_between_starts)
+                    
+                    # Arrange LD windows in rows after starting
+                    self.sort_window_ld()
                     return
             print(f"No LD found with name {name}")
         except Exception as e:
@@ -131,9 +134,10 @@ class ControlEmulator:
                     time.sleep(0.5)
                     continue
                 
-                scroll_duration = random.uniform(300, 800)
-                start_y = random.randint(800, 1000)
-                end_y = random.randint(300, 500)
+                # Adjusted values for smoother scrolling
+                scroll_duration = random.uniform(400, 600)  # Swipe duration in ms
+                start_y = random.randint(800, 900)         # Start Y-coordinate
+                end_y = random.randint(500, 600)           # End Y-coordinate
                 
                 subprocess.run([
                     "adb", "-s", serial,
@@ -143,7 +147,8 @@ class ControlEmulator:
                     str(int(scroll_duration))
                 ], check=True)
                 
-                time.sleep(random.uniform(1, 3))
+                # Shorter and more consistent delay between swipes
+                time.sleep(random.uniform(1.5, 2.5))
                 
         except Exception as e:
             print(f"Error scrolling on {name}: {str(e)}")
